@@ -59,8 +59,8 @@
         </div>
 
         <div class="settings">
-          <div><strong>Enter threshold:</strong> {{ ENTER_THRESHOLD }}</div>
-          <div><strong>Finish threshold:</strong> {{ FINISH_SCORE }}</div>
+          <div><strong>Enter threshold:</strong> {{ settings.enter_threshold }}</div>
+          <div><strong>Finish threshold:</strong> {{ settings.finish_threshold }}</div>
           <div><strong>Penalty on Farkle:</strong> {{ settings.penalty }}</div>
         </div>
       </div>
@@ -72,11 +72,7 @@
 import { ref, reactive, computed, watchEffect } from 'vue';
 import { useRoute } from 'vue-router';
 import './GameView.css';
-
-type Player = { name: string; score: number; entered: boolean };
-
-const ENTER_THRESHOLD = 500; // must score at least this in one turn to "enter"
-const FINISH_SCORE = 10000; // triggers final round when reached or exceeded
+import { Player } from '../types';
 
 const route = useRoute();
 
@@ -85,8 +81,8 @@ const settings = computed(() => {
   return {
     players: Math.max(1, Number(q.players ?? 2)),
     penalty: Number(q.penalty ?? -100),
-    // target is ignored for finish logic; FINISH_SCORE controls end
-    target: Number(q.target ?? 750),
+    enter_threshold: Number(q.enter_threshold ?? 750),
+    finish_threshold: Number(q.finish_threshold ?? 10000),
   };
 });
 
@@ -269,7 +265,7 @@ function roll() {
         players[currentPlayer.value].score += penalty;
         message.value = `Farkle! ${penalty} applied`;
       } else {
-        message.value = `Farkle! No penalty until you have entered (need ${ENTER_THRESHOLD})`;
+        message.value = `Farkle! No penalty until you have entered (need ${settings.value.enter_threshold})`;
       }
       setTimeout(() => {
         advancePlayer(currentPlayer.value, 0);
@@ -315,7 +311,7 @@ function roll() {
       players[currentPlayer.value].score += penalty;
       message.value = `Farkle! ${penalty} applied`;
     } else {
-      message.value = `Farkle! No penalty until you have entered (need ${ENTER_THRESHOLD})`;
+      message.value = `Farkle! No penalty until you have entered (need ${settings.value.enter_threshold})`;
     }
     setTimeout(() => {
       advancePlayer(currentPlayer.value, 0);
@@ -335,15 +331,15 @@ function stop() {
   // Add selected dice score to the total turn points
   const totalTurnScore = turnPoints.value + selScore;
 
-  // If player hasn't "entered" the game yet, they must score at least ENTER_THRESHOLD in a single turn
+  // If player hasn't "entered" the game yet, they must score at least settings.value.enter_threshold in a single turn
   if (!players[currentPlayer.value].entered) {
-    if (totalTurnScore >= ENTER_THRESHOLD) {
+    if (totalTurnScore >= settings.value.enter_threshold) {
       players[currentPlayer.value].entered = true;
       players[currentPlayer.value].score += totalTurnScore;
       message.value = `${players[currentPlayer.value].name} entered the game with ${totalTurnScore} points`;
     } else {
       // does not enter — points don't count
-      message.value = `Need at least ${ENTER_THRESHOLD} in a single turn to enter. No points added.`;
+      message.value = `Need at least ${settings.value.enter_threshold} in a single turn to enter. No points added.`;
     }
   } else {
     // normal banking: add all turn points including selected dice
@@ -351,7 +347,7 @@ function stop() {
   }
 
   // Check if this player's score meets or exceeds finish threshold and final phase not already started
-  if (!finalPhase.value && players[currentPlayer.value].score >= FINISH_SCORE) {
+  if (!finalPhase.value && players[currentPlayer.value].score >= settings.value.finish_threshold) {
     finalPhase.value = true;
     finalPhaseStarter.value = currentPlayer.value;
     finalPhaseRemaining.value = Math.max(0, players.length - 1);

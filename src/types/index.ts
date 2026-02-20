@@ -1,1 +1,1 @@
-// This file is intentionally left blank.
+export type Player = { name: string; score: number; entered: boolean };

@@ -15,8 +15,13 @@
         </label>
 
         <label>
-          Target score
-          <input type="number" v-model.number="target" min="1" />
+          Enter threshold
+          <input type="number" v-model.number="enter_threshold" min="1" />
+        </label>
+
+        <label>
+          Finish threshold
+          <input type="number" v-model.number="finish_threshold" min="1" />
         </label>
 
         <div class="actions">
@@ -24,7 +29,7 @@
         </div>
       </form>
 
-      <p class="hint">Defaults: players 2, penalty -100, target 750</p>
+      <p class="hint">Defaults: players 2, penalty -100, enter threshold 750</p>
     </div>
   </div>
 </template>
@@ -36,19 +41,21 @@ import { useRouter } from 'vue-router';
 const router = useRouter();
 const players = ref<number>(2);
 const penalty = ref<number>(-100);
-const target = ref<number>(750);
+const enter_threshold = ref<number>(750);
+const finish_threshold = ref<number>(10000);
 
 function startGame() {
   // basic validation
   if (players.value < 1) players.value = 1;
-  if (target.value < 1) target.value = 750;
+  if (enter_threshold.value < 1) enter_threshold.value = 750;
 
   router.push({
     name: 'game',
     query: {
       players: String(players.value),
       penalty: String(penalty.value),
-      target: String(target.value),
+      enter_threshold: String(enter_threshold.value),
+      finish_threshold: String(finish_threshold.value),
     },
   });
 }
