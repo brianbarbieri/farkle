@@ -1,0 +1,480 @@
+<template>
+  <div class="game-layout">
+    <div class="left">
+      <div class="panel">
+        <h3>Dice</h3>
+
+        <div class="dice-grid">
+          <div
+            v-for="(d, i) in visibleDice"
+            :key="i"
+            class="die"
+            :class="{ selected: selected.has(i) }"
+            @click="toggleSelect(i)"
+            :title="`Die ${i + 1}: ${d}`"
+          >
+            {{ d }}
+          </div>
+        </div>
+
+        <div class="controls">
+          <button class="primary" @click="roll" :disabled="rollDisabled">
+            {{ rolledDice.length === 0 ? 'Roll' : 'Roll Selected' }}
+          </button>
+          <button @click="stop" :disabled="turnPoints === 0 && !(rolledDice.length>0 && selected.size>0)">Stop</button>
+          <button class="ghost" @click="forceHotDice" title="Hot dice (use all dice)">
+            Hot dice
+          </button>
+        </div>
+
+        <div class="info-row">
+          <div>Dice left: <strong>{{ diceRemaining }}</strong></div>
+          <div>Turn points: <strong>{{ turnPoints }}</strong></div>
+        </div>
+
+        <div v-if="message" class="message">{{ message }}</div>
+        <div v-if="finalPhase && !gameOver" class="message">
+          Final round started — {{ finalPhaseRemaining }} players left to play their final turn
+        </div>
+        <div v-if="gameOver" class="winner">Game over — Winner: {{ winner?.name }} ({{ winner?.score }})</div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="panel scoreboard">
+        <h3>Scoreboard</h3>
+        <ul class="players">
+          <li
+            v-for="(p, idx) in players"
+            :key="idx"
+            :class="{ active: idx === currentPlayer, entered: p.entered }"
+          >
+            <div class="player-name">{{ p.name }}</div>
+            <div class="player-score">{{ p.score }}</div>
+            <div class="player-flag" v-if="!p.entered"> ⏳ not entered</div>
+          </li>
+        </ul>
+
+        <div class="turn-actions">
+          <div><strong>Active:</strong> {{ players[currentPlayer]?.name }}</div>
+          <div><strong>Unbanked:</strong> {{ turnPoints }}</div>
+        </div>
+
+        <div class="settings">
+          <div><strong>Enter threshold:</strong> {{ ENTER_THRESHOLD }}</div>
+          <div><strong>Finish threshold:</strong> {{ FINISH_SCORE }}</div>
+          <div><strong>Penalty on Farkle:</strong> {{ settings.penalty }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, computed, watchEffect } from 'vue';
+import { useRoute } from 'vue-router';
+
+type Player = { name: string; score: number; entered: boolean };
+
+const ENTER_THRESHOLD = 500; // must score at least this in one turn to "enter"
+const FINISH_SCORE = 10000; // triggers final round when reached or exceeded
+
+const route = useRoute();
+
+const settings = computed(() => {
+  const q = route.query;
+  return {
+    players: Math.max(1, Number(q.players ?? 2)),
+    penalty: Number(q.penalty ?? -100),
+    // target is ignored for finish logic; FINISH_SCORE controls end
+    target: Number(q.target ?? 750),
+  };
+});
+
+const players = reactive<Player[]>(
+  Array.from({ length: Math.max(1, Number(settings.value.players)) }, (_, i) => ({
+    name: `Player ${i + 1}`,
+    score: 0,
+    entered: false,
+  }))
+);
+
+watchEffect(() => {
+  const wanted = settings.value.players;
+  while (players.length < wanted) players.push({ name: `Player ${players.length + 1}`, score: 0, entered: false });
+  while (players.length > wanted) players.pop();
+});
+
+const currentPlayer = ref(0);
+const diceRemaining = ref(6);
+const rolledDice = ref<number[]>([]);
+const selected = ref(new Set<number>());
+const turnPoints = ref(0);
+const message = ref('');
+const winner = ref<Player | null>(null);
+
+const finalPhase = ref(false);
+const finalPhaseStarter = ref(-1);
+const finalPhaseRemaining = ref(0);
+const gameOver = ref(false);
+
+const rollDisabled = computed(() => false);
+
+function resetTurnState() {
+  diceRemaining.value = 6;
+  rolledDice.value = [];
+  selected.value = new Set();
+  turnPoints.value = 0;
+  message.value = '';
+}
+
+function rollAll(n: number) {
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(Math.floor(Math.random() * 6) + 1);
+  return out;
+}
+
+function computeScore(dice: number[]) {
+  if (!dice || dice.length === 0) return 0;
+  const counts = [0, 0, 0, 0, 0, 0, 0];
+  for (const d of dice) counts[d]++;
+  if (counts.slice(1).every(c => c === 1) && dice.length === 6) return 1500;
+  if (dice.length === 6 && counts.slice(1).filter(c => c === 2).length === 3) return 1500;
+  if (dice.length === 6 && counts.slice(1).filter(c => c >= 3).length === 2) return 2500;
+  let score = 0;
+  for (let face = 1; face <= 6; face++) {
+    const c = counts[face];
+    if (c >= 3) {
+      let base = face === 1 ? 1000 : face * 100;
+      score += base * Math.pow(2, c - 3);
+      counts[face] = 0;
+    }
+  }
+  score += counts[1] * 100;
+  score += counts[5] * 50;
+  return score;
+}
+
+function hasScoringCombination(dice: number[]) {
+  return computeScore(dice) > 0;
+}
+
+function toggleSelect(index: number) {
+  if (rolledDice.value.length === 0) return;
+  const sel = new Set(selected.value);
+  if (sel.has(index)) {
+    sel.delete(index);
+    selected.value = sel;
+    return;
+  }
+
+  sel.add(index);
+  const selectedVals = Array.from(sel).map(i => rolledDice.value[i]);
+  const s = computeScore(selectedVals);
+
+  // allow selection if the selected set already scores
+  if (s > 0) {
+    selected.value = sel;
+    turnPoints.value += s; // Add the score of the selected dice to turnPoints
+    return;
+  }
+
+  // allow building toward a three-of-a-kind:
+  // e.g. selecting two 6s should be allowed if there are three (or more) 6s in the current roll
+  if (selectedVals.length > 0) {
+    const first = selectedVals[0];
+    const allSame = selectedVals.every(v => v === first);
+    if (allSame) {
+      const totalOfVal = rolledDice.value.filter(v => v === first).length;
+      if (totalOfVal >= 3) {
+        selected.value = sel;
+        turnPoints.value += s; // Add the score of the selected dice to turnPoints
+        return;
+      }
+    }
+  }
+
+  // fallback: disallow selection and show message
+  message.value = 'Selected dice do not form a scoring set';
+  setTimeout(() => (message.value = ''), 1400);
+  return;
+}
+
+const visibleDice = computed(() => rolledDice.value);
+
+function endGame() {
+  gameOver.value = true;
+  // pick highest score
+  let top = players[0];
+  for (const p of players) if (p.score > top.score) top = p;
+  winner.value = { ...top };
+  message.value = `Game over — ${winner.value.name} wins with ${winner.value.score}`;
+}
+
+function advancePlayer(finishedIndex = currentPlayer.value, applyPenalty = 0) {
+  // apply penalty if any
+  if (applyPenalty !== 0) {
+    players[finishedIndex].score += applyPenalty;
+  }
+
+  // If in final phase and the finished player is NOT the starter, that consumes one final turn
+  if (finalPhase.value && finishedIndex !== finalPhaseStarter.value) {
+    finalPhaseRemaining.value = Math.max(0, finalPhaseRemaining.value - 1);
+  }
+
+  // determine next player
+  currentPlayer.value = (finishedIndex + 1) % players.length;
+
+  // If final phase has completed, end game
+  if (finalPhase.value && finalPhaseRemaining.value <= 0) {
+    endGame();
+    return;
+  }
+
+  // reset turn for next player
+  resetTurnState();
+}
+
+function roll() {
+  if (gameOver.value) return;
+
+  if (rolledDice.value.length === 0) {
+    // initial roll for this turn
+    rolledDice.value = rollAll(diceRemaining.value);
+    if (!hasScoringCombination(rolledDice.value)) {
+      // Farkle: apply penalty only if player has entered
+      if (players[currentPlayer.value].entered) {
+        const penalty = settings.value.penalty;
+        players[currentPlayer.value].score += penalty;
+        message.value = `Farkle! ${penalty} applied`;
+      } else {
+        message.value = `Farkle! No penalty until you have entered (need ${ENTER_THRESHOLD})`;
+      }
+      setTimeout(() => {
+        advancePlayer(currentPlayer.value, 0);
+      }, 800);
+      return;
+    }
+    return;
+  }
+
+  // rolling again: must have selected scoring dice
+  const selIndices = Array.from(selected.value).sort((a, b) => b - a);
+  if (selIndices.length === 0) {
+    message.value = 'Select scoring dice before rolling again';
+    setTimeout(() => (message.value = ''), 1200);
+    return;
+  }
+
+  const selVals = selIndices.map(i => rolledDice.value[i]);
+  const selScore = computeScore(selVals);
+  if (selScore <= 0) {
+    message.value = 'Selected dice do not score';
+    setTimeout(() => (message.value = ''), 1200);
+    return;
+  }
+
+  // bank selected dice to turnPoints and remove them
+  turnPoints.value += selScore;
+  for (const idx of selIndices) rolledDice.value.splice(idx, 1);
+  diceRemaining.value -= selIndices.length;
+
+  // hot dice: all used -> reset
+  if (diceRemaining.value <= 0) diceRemaining.value = 6;
+
+  selected.value = new Set();
+  // roll the remaining dice
+  rolledDice.value = rollAll(diceRemaining.value);
+
+  // check farkle after re-roll
+  if (!hasScoringCombination(rolledDice.value)) {
+    // Farkle: apply penalty only if player has entered
+    if (players[currentPlayer.value].entered) {
+      const penalty = settings.value.penalty;
+      players[currentPlayer.value].score += penalty;
+      message.value = `Farkle! ${penalty} applied`;
+    } else {
+      message.value = `Farkle! No penalty until you have entered (need ${ENTER_THRESHOLD})`;
+    }
+    setTimeout(() => {
+      advancePlayer(currentPlayer.value, 0);
+    }, 800);
+    return;
+  }
+}
+
+function stop() {
+  if (gameOver.value) return;
+
+  // If player hasn't "entered" the game yet, they must score at least ENTER_THRESHOLD in a single turn
+  if (!players[currentPlayer.value].entered) {
+    if (turnPoints.value >= ENTER_THRESHOLD) {
+      players[currentPlayer.value].entered = true;
+      players[currentPlayer.value].score += turnPoints.value;
+      message.value = `${players[currentPlayer.value].name} entered the game with ${turnPoints.value} points`;
+    } else {
+      // does not enter — points don't count
+      message.value = `Need at least ${ENTER_THRESHOLD} in a single turn to enter. No points added.`;
+    }
+  } else {
+    // normal banking: add selected dice score to turnPoints
+    const selIndices = Array.from(selected.value);
+    const selVals = selIndices.map(i => rolledDice.value[i]);
+    const selScore = computeScore(selVals);
+    
+    // Add selected dice score to turnPoints
+    turnPoints.value += selScore; // count selected dice in turnPoints
+    players[currentPlayer.value].score += selScore; // also add to player's score
+  }
+
+  // Check if this player's score meets or exceeds finish threshold and final phase not already started
+  if (!finalPhase.value && players[currentPlayer.value].score >= FINISH_SCORE) {
+    finalPhase.value = true;
+    finalPhaseStarter.value = currentPlayer.value;
+    finalPhaseRemaining.value = Math.max(0, players.length - 1);
+    message.value = `${players[currentPlayer.value].name} reached ${players[currentPlayer.value].score} — final round begins`;
+    // Advance to next player (do not decrement remaining here)
+    setTimeout(() => advancePlayer(currentPlayer.value, 0), 600);
+    return;
+  }
+
+  // Normal advancement: mark this player's turn as finished
+  setTimeout(() => advancePlayer(currentPlayer.value, 0), 300);
+}
+
+function forceHotDice() {
+  diceRemaining.value = 6;
+  rolledDice.value = [];
+  selected.value = new Set();
+  message.value = 'Hot dice: all dice available';
+  setTimeout(() => (message.value = ''), 1000);
+}
+
+resetTurnState();
+</script>
+
+<style scoped>
+.game-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  min-height: 80vh;
+  background: linear-gradient(180deg, #f6fbff 0%, #eef6ff 100%);
+  box-sizing: border-box;
+}
+
+.panel {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 10px 30px rgba(18, 38, 63, 0.06);
+}
+
+.dice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  margin: 0.8rem 0 1rem;
+}
+
+.die {
+  background: linear-gradient(180deg, #fff 0%, #f1f7ff 100%);
+  border: 1px solid #e6f0ff;
+  border-radius: 8px;
+  height: 64px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #073763;
+  cursor: pointer;
+  user-select: none;
+  transition: transform .12s, box-shadow .12s;
+}
+
+.die.selected {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 18px rgba(3, 102, 214, 0.18);
+  background: linear-gradient(180deg,#e6f8ff,#dff4ff);
+  border-color: #90dbff;
+}
+
+.controls {
+  display:flex;
+  gap:0.6rem;
+  align-items:center;
+}
+
+.controls button {
+  padding: 0.55rem 0.9rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.controls .primary {
+  background: linear-gradient(90deg,#06b6d4,#3b82f6);
+  color: white;
+}
+
+.controls .ghost {
+  background: transparent;
+  border: 1px dashed #cfe9ff;
+  color: #0366a6;
+}
+
+.info-row { display:flex; justify-content:space-between; margin-top:0.8rem; color:#334155; }
+
+.scoreboard .players {
+  list-style: none;
+  padding: 0;
+  margin: 0.6rem 0 1rem;
+}
+
+.players li {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  margin-bottom: 0.45rem;
+  background: linear-gradient(180deg,#fbfeff,#f7fbff);
+  border: 1px solid #eef6ff;
+}
+
+.players li.entered { opacity: 1; }
+.players li:not(.entered) { opacity: 0.7; }
+
+.players li.active {
+  background: linear-gradient(90deg,#e6f4ff,#e9f9ff);
+  border-color: #cfe9ff;
+  box-shadow: 0 6px 18px rgba(3, 102, 214, 0.06);
+}
+
+.player-name { color:#063256; font-weight:700; }
+.player-score { color:#08385b; font-weight:800; }
+
+.player-flag { font-size: 0.8rem; color:#6b7280; margin-left:0.5rem; }
+
+.message {
+  margin-top: 0.8rem;
+  background: #fff7ed;
+  border: 1px solid #ffe6c7;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  color:#7a4600;
+}
+
+.winner {
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  background: linear-gradient(90deg,#fff7ed,#fff9f2);
+  border-radius: 8px;
+  color:#7a4600;
+  font-weight:700;
+}
+</style>
