@@ -69,36 +69,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watchEffect } from 'vue';
-import { useRoute } from 'vue-router';
-import './GameView.css';
+import { ref, reactive, computed} from 'vue';
+import { useStore } from 'vuex'; // Import useStore from Vuex
 import { Player } from '../types';
+import "./GameView.css";
 
-const route = useRoute();
+const store = useStore(); // Initialize the store
 
-const settings = computed(() => {
-  const q = route.query;
-  return {
-    players: Math.max(1, Number(q.players ?? 2)),
-    penalty: Number(q.penalty ?? -100),
-    enter_threshold: Number(q.enter_threshold ?? 750),
-    finish_threshold: Number(q.finish_threshold ?? 10000),
-  };
-});
+const settings = computed(() => store.getters.settings); // Get settings from the store
 
-const players = reactive<Player[]>(
-  Array.from({ length: Math.max(1, Number(settings.value.players)) }, (_, i) => ({
-    name: `Player ${i + 1}`,
-    score: 0,
-    entered: false,
-  }))
-);
-
-watchEffect(() => {
-  const wanted = settings.value.players;
-  while (players.length < wanted) players.push({ name: `Player ${players.length + 1}`, score: 0, entered: false });
-  while (players.length > wanted) players.pop();
-});
+const players = reactive<Player[]>(Array.from({ length: Math.max(1, settings.value.players) }, (_, i) => ({
+  name: `Player ${i + 1}`,
+  score: 0,
+  entered: false,
+})));
 
 const currentPlayer = ref(0);
 const diceRemaining = ref(6);

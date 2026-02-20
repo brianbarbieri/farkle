@@ -36,28 +36,32 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useStore } from 'vuex'; // Import useStore from Vuex
 import { useRouter } from 'vue-router';
 
 const router = useRouter();
+const store = useStore(); // Initialize the store
+
 const players = ref<number>(2);
 const penalty = ref<number>(-100);
 const enter_threshold = ref<number>(750);
 const finish_threshold = ref<number>(10000);
 
 function startGame() {
-  // basic validation
+  // Basic validation
   if (players.value < 1) players.value = 1;
   if (enter_threshold.value < 1) enter_threshold.value = 750;
 
-  router.push({
-    name: 'game',
-    query: {
-      players: String(players.value),
-      penalty: String(penalty.value),
-      enter_threshold: String(enter_threshold.value),
-      finish_threshold: String(finish_threshold.value),
-    },
+  // Commit settings to the Vuex store
+  store.dispatch('initializeSettings', {
+    players: players.value,
+    penalty: penalty.value,
+    enter_threshold: enter_threshold.value,
+    finish_threshold: finish_threshold.value,
   });
+
+  // Navigate to the game view
+  router.push({ name: 'game' });
 }
 </script>
 
