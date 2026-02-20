@@ -1,0 +1,123 @@
+.game-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  min-height: 80vh;
+  background: linear-gradient(180deg, #f6fbff 0%, #eef6ff 100%);
+  box-sizing: border-box;
+}
+
+.panel {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 10px 30px rgba(18, 38, 63, 0.06);
+}
+
+.dice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  margin: 0.8rem 0 1rem;
+}
+
+.die {
+  background: linear-gradient(180deg, #fff 0%, #f1f7ff 100%);
+  border: 1px solid #e6f0ff;
+  border-radius: 8px;
+  height: 64px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #073763;
+  cursor: pointer;
+  user-select: none;
+  transition: transform .12s, box-shadow .12s;
+}
+
+.die.selected {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 18px rgba(3, 102, 214, 0.18);
+  background: linear-gradient(180deg,#e6f8ff,#dff4ff);
+  border-color: #90dbff;
+}
+
+.controls {
+  display:flex;
+  gap:0.6rem;
+  align-items:center;
+}
+
+.controls button {
+  padding: 0.55rem 0.9rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.controls .primary {
+  background: linear-gradient(90deg,#06b6d4,#3b82f6);
+  color: white;
+}
+
+.controls .ghost {
+  background: transparent;
+  border: 1px dashed #cfe9ff;
+  color: #0366a6;
+}
+
+.info-row { display:flex; justify-content:space-between; margin-top:0.8rem; color:#334155; }
+
+.scoreboard .players {
+  list-style: none;
+  padding: 0;
+  margin: 0.6rem 0 1rem;
+}
+
+.players li {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  margin-bottom: 0.45rem;
+  background: linear-gradient(180deg,#fbfeff,#f7fbff);
+  border: 1px solid #eef6ff;
+}
+
+.players li.entered { opacity: 1; }
+.players li:not(.entered) { opacity: 0.7; }
+
+.players li.active {
+  background: linear-gradient(90deg,#e6f4ff,#e9f9ff);
+  border-color: #cfe9ff;
+  box-shadow: 0 6px 18px rgba(3, 102, 214, 0.06);
+}
+
+.player-name { color:#063256; font-weight:700; }
+.player-score { color:#08385b; font-weight:800; }
+
+.player-flag { font-size: 0.8rem; color:#6b7280; margin-left:0.5rem; }
+
+.message {
+  margin-top: 0.8rem;
+  background: #fff7ed;
+  border: 1px solid #ffe6c7;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  color:#7a4600;
+}
+
+.winner {
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  background: linear-gradient(90deg,#fff7ed,#fff9f2);
+  border-radius: 8px;
+  color:#7a4600;
+  font-weight:700;
+}
