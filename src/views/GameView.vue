@@ -21,7 +21,7 @@
           <button class="primary" @click="roll" :disabled="rollDisabled">
             {{ rolledDice.length === 0 ? 'Roll' : 'Roll Selected' }}
           </button>
-          <button @click="stop" :disabled="turnPoints === 0 && !(rolledDice.length>0 && selected.size>0)">Stop</button>
+          <button @click="stop" :disabled="turnPoints === 0 && !(rolledDice.length > 0 && selected.size > 0)">Stop</button>
           <button class="ghost" @click="forceHotDice" title="Hot dice (use all dice)">
             Hot dice
           </button>
@@ -29,7 +29,8 @@
 
         <div class="info-row">
           <div>Dice left: <strong>{{ diceRemaining }}</strong></div>
-          <div>Turn points: <strong>{{ turnPoints }}</strong></div>
+          <div>Banked: <strong>{{ turnPoints }}</strong></div>
+          <div v-if="currentSelectionScore > 0">Selected: <strong>{{ currentSelectionScore }}</strong></div>
         </div>
 
         <div v-if="message" class="message">{{ message }}</div>
@@ -57,7 +58,7 @@
 
         <div class="turn-actions">
           <div><strong>Active:</strong> {{ players[currentPlayer]?.name }}</div>
-          <div><strong>Unbanked:</strong> {{ turnPoints }}</div>
+          <div><strong>Total this turn:</strong> {{ turnPoints + currentSelectionScore }}</div>
         </div>
 
         <div class="settings">
@@ -120,6 +121,12 @@ const gameOver = ref(false);
 
 const rollDisabled = computed(() => false);
 
+const currentSelectionScore = computed(() => {
+  if (selected.value.size === 0) return 0;
+  const selectedVals = Array.from(selected.value).map(i => rolledDice.value[i]);
+  return computeScore(selectedVals);
+});
+
 function resetTurnState() {
   diceRemaining.value = 6;
   rolledDice.value = [];
@@ -138,20 +145,21 @@ function computeScore(dice: number[]) {
   if (!dice || dice.length === 0) return 0;
   const counts = [0, 0, 0, 0, 0, 0, 0];
   for (const d of dice) counts[d]++;
-  if (counts.slice(1).every(c => c === 1) && dice.length === 6) return 1500;
-  if (dice.length === 6 && counts.slice(1).filter(c => c === 2).length === 3) return 1500;
-  if (dice.length === 6 && counts.slice(1).filter(c => c >= 3).length === 2) return 2500;
+  
   let score = 0;
+  // Calculate score for three of a kind or more
   for (let face = 1; face <= 6; face++) {
     const c = counts[face];
     if (c >= 3) {
       let base = face === 1 ? 1000 : face * 100;
       score += base * Math.pow(2, c - 3);
-      counts[face] = 0;
+      counts[face] = 0; // Reset count for this face
     }
   }
-  score += counts[1] * 100;
-  score += counts[5] * 50;
+  // Add score for 1s and 5s
+  score += counts[1] * 100; // Each 1 is worth 100 points
+  score += counts[5] * 50;   // Each 5 is worth 50 points
+  
   return score;
 }
 
@@ -161,43 +169,60 @@ function hasScoringCombination(dice: number[]) {
 
 function toggleSelect(index: number) {
   if (rolledDice.value.length === 0) return;
-  const sel = new Set(selected.value);
-  if (sel.has(index)) {
-    sel.delete(index);
-    selected.value = sel;
-    return;
-  }
-
-  sel.add(index);
-  const selectedVals = Array.from(sel).map(i => rolledDice.value[i]);
-  const s = computeScore(selectedVals);
-
-  // allow selection if the selected set already scores
-  if (s > 0) {
-    selected.value = sel;
-    turnPoints.value += s; // Add the score of the selected dice to turnPoints
-    return;
-  }
-
-  // allow building toward a three-of-a-kind:
-  // e.g. selecting two 6s should be allowed if there are three (or more) 6s in the current roll
-  if (selectedVals.length > 0) {
-    const first = selectedVals[0];
-    const allSame = selectedVals.every(v => v === first);
-    if (allSame) {
-      const totalOfVal = rolledDice.value.filter(v => v === first).length;
-      if (totalOfVal >= 3) {
-        selected.value = sel;
-        turnPoints.value += s; // Add the score of the selected dice to turnPoints
-        return;
-      }
+  
+  const clickedValue = rolledDice.value[index];
+  
+  // If clicking a die that's already selected, deselect it (and potentially others in the same group)
+  if (selected.value.has(index)) {
+    const sel = new Set(selected.value);
+    
+    // Check if this die is part of a three-of-a-kind or more
+    const allIndices = rolledDice.value
+      .map((val, idx) => ({ val, idx }))
+      .filter(d => d.val === clickedValue)
+      .map(d => d.idx);
+    
+    if (allIndices.length >= 3) {
+      // Deselect all dice of this value
+      allIndices.forEach(idx => sel.delete(idx));
+    } else {
+      // Just deselect this one die
+      sel.delete(index);
     }
+    
+    selected.value = sel;
+    return;
   }
-
-  // fallback: disallow selection and show message
+  
+  // Selecting a new die
+  const sel = new Set(selected.value);
+  
+  // Check if this value appears 3+ times (three-of-a-kind or more)
+  const sameValueIndices = rolledDice.value
+    .map((val, idx) => ({ val, idx }))
+    .filter(d => d.val === clickedValue)
+    .map(d => d.idx);
+  
+  if (sameValueIndices.length >= 3) {
+    // Auto-select all dice of this value (three-of-a-kind combo)
+    sameValueIndices.forEach(idx => sel.add(idx));
+  } else {
+    // Just add this single die
+    sel.add(index);
+  }
+  
+  // Verify the selection is valid
+  const selectedVals = Array.from(sel).map(i => rolledDice.value[i]);
+  const totalScore = computeScore(selectedVals);
+  
+  if (totalScore > 0) {
+    selected.value = sel;
+    return;
+  }
+  
+  // Invalid selection
   message.value = 'Selected dice do not form a scoring set';
   setTimeout(() => (message.value = ''), 1400);
-  return;
 }
 
 const visibleDice = computed(() => rolledDice.value);
@@ -306,25 +331,27 @@ function roll() {
 function stop() {
   if (gameOver.value) return;
 
+  // Calculate score from currently selected dice
+  const selIndices = Array.from(selected.value);
+  const selVals = selIndices.map(i => rolledDice.value[i]);
+  const selScore = computeScore(selVals);
+  
+  // Add selected dice score to the total turn points
+  const totalTurnScore = turnPoints.value + selScore;
+
   // If player hasn't "entered" the game yet, they must score at least ENTER_THRESHOLD in a single turn
   if (!players[currentPlayer.value].entered) {
-    if (turnPoints.value >= ENTER_THRESHOLD) {
+    if (totalTurnScore >= ENTER_THRESHOLD) {
       players[currentPlayer.value].entered = true;
-      players[currentPlayer.value].score += turnPoints.value;
-      message.value = `${players[currentPlayer.value].name} entered the game with ${turnPoints.value} points`;
+      players[currentPlayer.value].score += totalTurnScore;
+      message.value = `${players[currentPlayer.value].name} entered the game with ${totalTurnScore} points`;
     } else {
       // does not enter — points don't count
       message.value = `Need at least ${ENTER_THRESHOLD} in a single turn to enter. No points added.`;
     }
   } else {
-    // normal banking: add selected dice score to turnPoints
-    const selIndices = Array.from(selected.value);
-    const selVals = selIndices.map(i => rolledDice.value[i]);
-    const selScore = computeScore(selVals);
-    
-    // Add selected dice score to turnPoints
-    turnPoints.value += selScore; // count selected dice in turnPoints
-    players[currentPlayer.value].score += selScore; // also add to player's score
+    // normal banking: add all turn points including selected dice
+    players[currentPlayer.value].score += totalTurnScore;
   }
 
   // Check if this player's score meets or exceeds finish threshold and final phase not already started
